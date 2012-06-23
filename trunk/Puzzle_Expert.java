@@ -12,11 +12,12 @@ import java.util.Random;
 
 public class Puzzle_Expert extends ParticleAnalyzer {
 
-  protected int w, h, u, v, p, i, yTopBorder, yBottomBorder, xLeftBorder, xRightBorder;
+  protected int w, h, u, v, p, i, yTopBorder, yBottomBorder, xLeftBorder, xRightBorder,
+    r, g, b, rColor;
   
   protected float[] x, y, widths, heights;
   
-  protected ImageProcessor ipNew;
+  protected ImageProcessor ipOrig, ipOrigMod, ipNew, ipNewMod;
 
   /**
    * Constructor.
@@ -26,7 +27,7 @@ public class Puzzle_Expert extends ParticleAnalyzer {
 
   public Puzzle_Expert() {
 
-    this(541085696, 513, Analyzer.getResultsTable(), 0.0, Double.POSITIVE_INFINITY, 0.0, 1.0);
+    this(128, 513, Analyzer.getResultsTable(), 0.0, Double.POSITIVE_INFINITY, 0.0, 1.0);
            
   }
 
@@ -57,7 +58,7 @@ public class Puzzle_Expert extends ParticleAnalyzer {
     //if no image, exit
     if (imp==null)
 			{IJ.noImage();return DONE;}
-      
+
     //we have to convert the image to grayscale right away or the base class will reject it
     ImageConverter ic = new ImageConverter(imp);
     ic.convertToGray8();
@@ -79,21 +80,45 @@ public class Puzzle_Expert extends ParticleAnalyzer {
    @Override 
 	public void run(ImageProcessor ip) {
   
-    //copy the image processor to our global object
+    //copy the image processor to our global object so we don't destroy the original
+    ipNew = ip.duplicate();
 
+    //update the global image object
+    imp = new ImagePlus("result", ipNew);
+    
     //calculate width and height of image
-		 w = ip.getWidth();
-		 h = ip.getHeight();
-  
-     //convert the image to black-or-white only
-     ip = convertImageToBinaryMap(ip);
-  
-     //run the base class method to calculate the positions of the rectangles around each cluster
-     super.run(ip);
+		w = ipNew.getWidth();
+		h = ipNew.getHeight(); 
+         
+    //convert the image to black-or-white only
+    convertImageToBinaryMap();
 
-     //display a rectangle around each cluster
-     displayRectangles(ip);
+    //run the base class method to calculate the positions of the rectangles around each cluster
+    getClusters();     
+
+    //create duplicates for display
+    ipOrig = ip.duplicate().convertToRGB();
+    ipOrigMod = ipOrig.duplicate();
+    ipNewMod = ipNew.duplicate().convertToRGB();
+    //add a rectangle around each cluster
+    addRectangles();
+    
+    //display the results
+    displayResults();
 	}
+
+  /**
+   * Find clusters of pixels in the image and store the positions of the rectangles around each one
+   * in the rt (ResultsTable) object.         
+   */
+  public void getClusters()
+  {
+		slice++;
+		if (imp.getStackSize()>1 && processStack)
+			imp.setSlice(slice);
+	  
+		analyze(imp, ipNew);
+  }
   
   /**
    * Override this method so that the dialog with display options is not shown.
@@ -112,7 +137,7 @@ public class Puzzle_Expert extends ParticleAnalyzer {
   /**
    * Convert the image from greyscale into black-or-white only based on an arbitrary threshold. 
    */
-  protected ImageProcessor convertImageToBinaryMap(ImageProcessor ip)
+  protected void convertImageToBinaryMap()
   {
     //loop over all image coordinates and convert the pixels to either black or
     //white based on an arbitrary threshold
@@ -121,24 +146,23 @@ public class Puzzle_Expert extends ParticleAnalyzer {
 			for(v = 0; v < h; v++)
 			{
         //get the pixel at this position in the grayscale image
-				p = ip.get(u, v);
+				p = ipNew.get(u, v);
         if (p < 100) //arbitrary cutoff for "black"
         {
-          ip.set(u, v, 0); 
+          ipNew.set(u, v, 0); 
         } else
         {
-          ip.set(u, v, 255);
+          ipNew.set(u, v, 255);
         }
 			}
 		}
-    return ip;
   }
  
 
   /**
    * Add the rectangles around each cluster to the image.
    */
-  protected void displayRectangles(ImageProcessor ip)
+  protected void addRectangles()
   {
      //get x "start values" of rectangles (upper left-hand corner)
      x = rt.getColumn(11);
@@ -148,6 +172,14 @@ public class Puzzle_Expert extends ParticleAnalyzer {
      widths = rt.getColumn(13);
      //get heights of rectangles
      heights = rt.getColumn(14);
+     
+     //set rectangle color
+     r = 0; g = 0; b = 255;
+     //convert the r, g, b components back to an integer
+     rColor = ((r & 0xff) << 16) +
+            ((g & 0xff) << 8) +
+            (b & 0xff);
+          //update the pixel in the color image
 
      //draw the rectangles
      for (i=0; i<x.length; i++)
@@ -169,27 +201,42 @@ public class Puzzle_Expert extends ParticleAnalyzer {
           for(u = (int) x[i]; u < (int) (x[i] + widths[i]); u++)
           {
             //draw top border
-            ip.set(u, yTopBorder, 100);
+            ipNewMod.set(u, yTopBorder, rColor);
+            ipOrigMod.set(u, yTopBorder, rColor);
             
-            //draw bottom border
-            ip.set(u, yBottomBorder, 100);  
+            //draw bottom border            
+            ipNewMod.set(u, yBottomBorder, rColor);
+            ipOrigMod.set(u, yBottomBorder, rColor);  
           }
           
           //draw the left and right borders of the rectangle
           for(v = (int) y[i]; v < (int) (y[i] + heights[i]); v++)
           {
             //draw top border
-            ip.set(xLeftBorder, v, 100);
+            ipNewMod.set(xLeftBorder, v, rColor);
+            ipOrigMod.set(xLeftBorder, v, rColor);
             
             //draw bottom border
-            ip.set(xRightBorder, v, 100);  
+            ipNewMod.set(xRightBorder, v, rColor);
+            ipOrigMod.set(xRightBorder, v, rColor);  
           }
         }
      }
+  }
 
-    imp.setProcessor(ip);
-    imp.updateAndDraw();
+  /**
+   * Display the images.
+   */
+  protected void displayResults()
+  {
+    ImagePlus imOrig = new ImagePlus("original", ipOrig);
 
+    ImageStack imStack = imOrig.getStack();
+    imStack.addSlice("with rectangles", ipOrigMod);
+    imStack.addSlice("black & white", ipNewMod);
+
+    ImagePlus imTest = new ImagePlus("results", imStack);
+    imTest.show();
   }
 
 }
