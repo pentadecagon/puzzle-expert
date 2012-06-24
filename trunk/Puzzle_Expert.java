@@ -82,16 +82,20 @@ public class Puzzle_Expert extends ParticleAnalyzer {
   
     //copy the image processor to our global object so we don't destroy the original
     ipNew = ip.duplicate();
-
+    
+    //set threshold & convert the image to black-or-white only
+    ipNew.setAutoThreshold("IsoData", false, ImageProcessor.BLACK_AND_WHITE_LUT);
+    /*//manual method of setting threshold
+    int[] his = ipNew.getHistogram();
+    int g = findThreshold(his);
+    ipNew.setThreshold(0.0, (double) g, ImageProcessor.BLACK_AND_WHITE_LUT);*/
+                      
     //update the global image object
     imp = new ImagePlus("result", ipNew);
     
     //calculate width and height of image
 		w = ipNew.getWidth();
 		h = ipNew.getHeight(); 
-         
-    //convert the image to black-or-white only
-    convertImageToBinaryMap();
 
     //run the base class method to calculate the positions of the rectangles around each cluster
     getClusters();     
@@ -99,7 +103,7 @@ public class Puzzle_Expert extends ParticleAnalyzer {
     //create duplicates for display
     ipOrig = ip.duplicate().convertToRGB();
     ipOrigMod = ipOrig.duplicate();
-    ipNewMod = ipNew.duplicate().convertToRGB();
+    ipNewMod = ipNew.convertToRGB();
     //add a rectangle around each cluster
     addRectangles();
     
@@ -131,33 +135,6 @@ public class Puzzle_Expert extends ParticleAnalyzer {
  				
 		return true;
 	}
-  
-
-  
-  /**
-   * Convert the image from greyscale into black-or-white only based on an arbitrary threshold. 
-   */
-  protected void convertImageToBinaryMap()
-  {
-    //loop over all image coordinates and convert the pixels to either black or
-    //white based on an arbitrary threshold
-		for(u = 0; u < w; u++)
-		{
-			for(v = 0; v < h; v++)
-			{
-        //get the pixel at this position in the grayscale image
-				p = ipNew.get(u, v);
-        if (p < 100) //arbitrary cutoff for "black"
-        {
-          ipNew.set(u, v, 0); 
-        } else
-        {
-          ipNew.set(u, v, 255);
-        }
-			}
-		}
-  }
- 
 
   /**
    * Add the rectangles around each cluster to the image.
@@ -238,5 +215,45 @@ public class Puzzle_Expert extends ParticleAnalyzer {
     ImagePlus imTest = new ImagePlus("results", imStack);
     imTest.show();
   }
+
+  /**
+   * Manual threshold calculation.
+   */
+
+  /*private int findThreshold(int[] data)
+  {
+		int i, l, totl, g=0;
+		double toth, h;
+		for (i = 1; i < 256; i++) {
+			if (data[i] > 0){
+				g = i + 1;
+				break;
+			}
+		}
+		while (true){
+			l = 0;
+			totl = 0;
+			for (i = 0; i < g; i++) {
+				 totl = totl + data[i];
+				 l = l + (data[i] * i);
+			}
+			h = 0;
+			toth = 0;
+			for (i = g + 1; i < 256; i++){
+				toth += data[i];
+				h += ((double)data[i]*i);
+			}
+			if (totl > 0 && toth > 0){
+				l /= totl;
+				h /= toth;
+				if (g == (int) Math.round((l + h) / 2.0))
+					break;
+			}
+			g++;
+			if (g > 254)
+				return -1;
+		}
+		return g;  
+  }*/
 
 }
