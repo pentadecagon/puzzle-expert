@@ -5,12 +5,14 @@ import java.awt.*;
 import ij.plugin.filter.*;
 import ij.measure.*;
 import java.util.Random;
+import java.awt.event.*;
+import ij.text.TextWindow; 
 
   /**
    * Plugin converts an image to black and white and draws a rectangle around each shape.
    */     
 
-public class Puzzle_Expert extends ParticleAnalyzer {
+public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, MouseListener, KeyListener, ImageListener {
 
   protected int w, h, u, v, p, i, yTopBorder, yBottomBorder, xLeftBorder, xRightBorder,
     r, g, b, rColor;
@@ -19,6 +21,19 @@ public class Puzzle_Expert extends ParticleAnalyzer {
   
   protected ImageProcessor ipOrig, ipOrigMod, ipNew, ipNewMod;
 
+  ImagePlus imRes;
+
+  ImageWindow win;
+  ImageCanvas canvas;
+  TextWindow tw;
+  
+  CurrentSelectedPosition currentSelectedPosition = new CurrentSelectedPosition();
+  
+  char keyChar;
+  int keyCode;
+  
+  int sliceNumber = 1;
+  
   /**
    * Constructor.
    *    
@@ -54,10 +69,13 @@ public class Puzzle_Expert extends ParticleAnalyzer {
    */ 
   //@Override 
   public int setup(String arg, ImagePlus imp) {
-
+         
     //if no image, exit
     if (imp==null)
 			{IJ.noImage();return DONE;}
+
+    //reset results table to erase past data
+    rt.reset();
 
     //we have to convert the image to grayscale right away or the base class will reject it
     ImageConverter ic = new ImageConverter(imp);
@@ -79,7 +97,9 @@ public class Puzzle_Expert extends ParticleAnalyzer {
    */
    @Override 
 	public void run(ImageProcessor ip) {
-  
+    
+    ip = ip.rotateRight();
+    
     //copy the image processor to our global object so we don't destroy the original
     ipNew = ip.duplicate();
     
@@ -99,7 +119,7 @@ public class Puzzle_Expert extends ParticleAnalyzer {
 
     //run the base class method to calculate the positions of the rectangles around each cluster
     getClusters();     
-
+ 
     //create duplicates for display
     ipOrig = ip.duplicate().convertToRGB();
     ipOrigMod = ipOrig.duplicate();
@@ -206,15 +226,160 @@ public class Puzzle_Expert extends ParticleAnalyzer {
    */
   protected void displayResults()
   {
+    //create a copy of the original image
     ImagePlus imOrig = new ImagePlus("original", ipOrig);
 
-    ImageStack imStack = imOrig.getStack();
-    imStack.addSlice("with rectangles", ipOrigMod);
-    imStack.addSlice("black & white", ipNewMod);
+    //create an image stack
+    ImageStack stack = imOrig.getStack();
+    
+    //add the image with the rectangles to the stack
+    stack.addSlice("with rectangles", ipOrigMod);
+    
+    //add the black and white version with the rectangles to the stack
+    stack.addSlice("black & white", ipNewMod);
 
-    ImagePlus imTest = new ImagePlus("results", imStack);
-    imTest.show();
+    //display the stack: the user presses keyboard left or right to toggle the images
+    imRes = new ImagePlus("results", stack);
+    imRes.show();
+    
+    //add mouse onclick events
+    win = imRes.getWindow();
+    //due to image rotation, change the dimensions of the window
+    Rectangle bounds = win.getBounds();
+    win.setLocationAndSize(bounds.x, bounds.y, 2*bounds.height, 2*bounds.width);
+    
+    canvas = win.getCanvas();
+
+    win.addMouseListener(this);
+    canvas.addMouseListener(this);   
+    //add keyboard events
+    win.removeKeyListener(IJ.getInstance());
+    canvas.removeKeyListener(IJ.getInstance());
+
+    win.addKeyListener(this);
+    canvas.addKeyListener(this);
+    ImagePlus.addImageListener(this);
+    //add window to save data from onclick and keyboard events
+    String title = "Key mapping table";
+    String headings = "x\ty\tletter\t";
+    tw = new TextWindow(title, headings, "", 400, 500); 
   }
+  
+  /**
+   * Saves the position of the last place the user clicked on with the mouse.         
+   */
+  
+  protected class CurrentSelectedPosition
+  {
+    public int x = 0;
+    public int y = 0;
+  };
+
+  /**
+   * Onclick event: when user clicks, save the coordinate position, and the next time they press
+   * a letter key, print the coordinates and that letter to the window.
+   * 
+   * @param MouseEvent The onclick event                  
+   */
+
+  public void mouseClicked(MouseEvent e) {
+    int x = e.getX();
+    int y = e.getY();
+    int offscreenX = canvas.offScreenX(x);
+    int offscreenY = canvas.offScreenY(y);
+    
+    currentSelectedPosition.x = offscreenX;
+    currentSelectedPosition.y = offscreenY;
+   
+    
+  }
+
+  /**
+   * Event that is fired when the user presses a key.
+   * 
+   * If the key is a letter, and the user has previously clicked on a place in the image,
+   * assign the letter to those coordinates.         
+   * 
+   * @param KeyEvent The keypress event                  
+   */
+
+  public void keyPressed(KeyEvent e) {
+
+    keyCode = e.getKeyCode();
+    keyChar = e.getKeyChar();
+    //if it's not a letter, do nothing
+    if (Character.isLetter(keyChar))
+    {
+        //if the user has not clicked the mouse to select a position, don't do anything
+        if (currentSelectedPosition.x == 0)
+        {
+          return;
+        }
+        tw.append(currentSelectedPosition.x+"\t"+currentSelectedPosition.y+"\t"+KeyEvent.getKeyText(keyCode));
+        currentSelectedPosition.x = currentSelectedPosition.y = 0;
+    } else
+    {
+        //little hack: we have to restore the functionality of the direction keys because they were canceled when we
+        //removed all window events in order to cancel the keyboard macros
+        if (keyCode == KeyEvent.VK_UP)
+        {
+            //up key: zoom in
+            canvas.zoomIn(canvas.getWidth()/2, canvas.getHeight()/2);
+        } else if (keyCode == KeyEvent.VK_DOWN)
+        {
+            //down key: zoom out
+            canvas.zoomOut(canvas.getWidth()/2, canvas.getHeight()/2);
+        } else if (keyCode == KeyEvent.VK_RIGHT)
+        {
+            //right key: show next image in stack
+            if (sliceNumber > 2)
+            {
+              sliceNumber = 1;
+            } else
+            {
+              sliceNumber++; 
+            }
+            imRes.setSlice(sliceNumber);
+        } else if (keyCode == KeyEvent.VK_LEFT)
+        {
+            //left key: show previous image in stack
+            if (sliceNumber < 2)
+            {
+              sliceNumber = 3;
+            } else
+            {
+              sliceNumber--; 
+            }
+            imRes.setSlice(sliceNumber);
+        }
+     }
+  }
+
+  /**
+   * Event that is fired when the image is closed.
+   * 
+   * Remove listeners.               
+   * 
+   * @param ImagePlus The image object      
+   */
+
+  public void imageClosed(ImagePlus imp) {
+    if (win!=null)
+      win.removeKeyListener(this);
+    if (canvas!=null)
+      canvas.removeKeyListener(this);
+    ImagePlus.removeImageListener(this);
+  }
+
+  public void mousePressed(MouseEvent e) {}
+  public void mouseReleased(MouseEvent e) {}
+  public void mouseEntered(MouseEvent e) {}
+  public void mouseExited(MouseEvent e) {}
+
+  public void keyReleased(KeyEvent e) {}
+  public void keyTyped(KeyEvent e) {}
+  public void imageOpened(ImagePlus imp) {}
+  public void imageUpdated(ImagePlus imp) {}
 
   /**
    * Manual threshold calculation.
