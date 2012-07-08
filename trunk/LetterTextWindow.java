@@ -4,7 +4,7 @@ import ij.gui.*;
 
   /**
    * This is a results window that opens when the plugin is initialized. The user has to click on points in the image and assign letters to those points.
-   * Then when the user closes this window, the rectangles of interest they clicked on will be saved as 8x8 images.   
+   * Then when the user closes this window, the rectangles of interest they clicked on will be saved as 12x12 images.   
    */ 
 
 public class LetterTextWindow extends TextWindow {
@@ -60,7 +60,7 @@ public class LetterTextWindow extends TextWindow {
 			return;
 	    }
 
-	    puzzleExpert.saveLettersAsImages(x, y, letters);	    
+	    puzzleExpert.saveLettersAsImages(x, y, letters, text);	    
 
 		//close
 		dispose();
