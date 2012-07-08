@@ -7,9 +7,13 @@ import ij.measure.*;
 import java.util.Random;
 import java.awt.event.*;
 import ij.text.TextWindow; 
+import ij.text.TextPanel;
+import java.io.*;
+import java.util.HashMap;
 
   /**
-   * Plugin converts an image to black and white and draws a rectangle around each shape.
+   * Plugin converts an image to black and white and draws a rectangle around each shape, then the user assigns letters to rectangles manually in a window
+   * and the results are saved as 8x8 images when the user closes the window.      
    */     
 
 public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, MouseListener, KeyListener, ImageListener {
@@ -25,7 +29,7 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
 
   ImageWindow win;
   ImageCanvas canvas;
-  TextWindow tw;
+  LetterTextWindow tw;
   
   CurrentSelectedPosition currentSelectedPosition = new CurrentSelectedPosition();
   
@@ -33,6 +37,8 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
   int keyCode;
   
   int sliceNumber = 1;
+  
+  String imageTitle;
   
   /**
    * Constructor.
@@ -69,7 +75,9 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
    */ 
   //@Override 
   public int setup(String arg, ImagePlus imp) {
-         
+    
+	  imageTitle = imp.getShortTitle();
+	  
     //if no image, exit
     if (imp==null)
 			{IJ.noImage();return DONE;}
@@ -114,8 +122,8 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
     imp = new ImagePlus("result", ipNew);
     
     //calculate width and height of image
-		w = ipNew.getWidth();
-		h = ipNew.getHeight(); 
+	w = ipNew.getWidth();
+	h = ipNew.getHeight(); 
 
     //run the base class method to calculate the positions of the rectangles around each cluster
     getClusters();     
@@ -124,6 +132,16 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
     ipOrig = ip.duplicate().convertToRGB();
     ipOrigMod = ipOrig.duplicate();
     ipNewMod = ipNew.convertToRGB();
+    
+    //get x "start values" of rectangles (upper left-hand corner)
+    x = rt.getColumn(11);
+    //get y "start values" of rectangles (upper left-hand corner)
+    y = rt.getColumn(12);
+    //get widths of rectangles
+    widths = rt.getColumn(13);
+    //get heights of rectangles
+    heights = rt.getColumn(14);
+    
     //add a rectangle around each cluster
     addRectangles();
     
@@ -161,15 +179,6 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
    */
   protected void addRectangles()
   {
-     //get x "start values" of rectangles (upper left-hand corner)
-     x = rt.getColumn(11);
-     //get y "start values" of rectangles (upper left-hand corner)
-     y = rt.getColumn(12);
-     //get widths of rectangles
-     widths = rt.getColumn(13);
-     //get heights of rectangles
-     heights = rt.getColumn(14);
-     
      //set rectangle color
      r = 0; g = 0; b = 255;
      //convert the r, g, b components back to an integer
@@ -262,7 +271,7 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
     //add window to save data from onclick and keyboard events
     String title = "Key mapping table";
     String headings = "x\ty\tletter\t";
-    tw = new TextWindow(title, headings, "", 400, 500); 
+    tw = new LetterTextWindow(title, headings, "", 400, 500, this);
   }
   
   /**
@@ -290,8 +299,6 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
     
     currentSelectedPosition.x = offscreenX;
     currentSelectedPosition.y = offscreenY;
-   
-    
   }
 
   /**
@@ -421,4 +428,176 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
 		return g;  
   }*/
 
+  /**
+   * Class holds the coordinates of a rectangle around a cluster, allowing us to manipulate them easily.
+   *             
+   */ 
+
+  protected class RectangleCoordinates
+  {
+  /**
+   * Coordinates of a rectangle: x-position of top-left corner, y-position of top-left corner,
+   * width of rectangle, height of rectangle         
+   */ 
+	  public int xTopLeft, yTopLeft, rW, rH;
+
+  /**
+   * Adjust the rectangle dimensions to a square.
+   *    
+   * This helps because later we want to resize the image to 8x8.         
+   */ 
+
+    public void adjustToSquare()
+    {
+    	//IJ.log("original coordinates: xTopLeft="+xTopLeft+", yTopLeft="+yTopLeft+", rW="+rW+", rH="+rH);
+    	
+    	//we need a square shape for the resizing, so adjust the parameters slightly
+		if (rH > rW)
+		{
+			if ((rH - rW) % 2 != 0)
+			{
+				rH = rH + 1;
+			}
+			//make sure the horizontal position of the center does not change, unless it violates the boundaries of the image
+			if ((xTopLeft - (rH - rW)/2) > -1)
+			{
+				xTopLeft = xTopLeft - (rH - rW)/2;
+			} else
+			{
+				xTopLeft = 0;
+			}
+			rW = rH;
+		} else if (rW > rH)
+		{
+			if ((rW - rH) % 2 != 0)
+			{
+				rH = rH + 1;
+			}
+			//make sure the vertical position of the center does not change, unless it violates the boundaries of the image
+			if ((yTopLeft - (rW - rH)/2) > -1)
+			{
+				yTopLeft = yTopLeft - (rW - rH)/2;
+			} else
+			{
+				yTopLeft = 0;
+			}
+			rH = rW;
+		}
+		
+		//IJ.log("final coordinates: xTopLeft="+xTopLeft+", yTopLeft="+yTopLeft+", rW="+rW+", rH="+rH);
+    }
+  };
+  
+  /**
+   * Saves all of the letters in the image as individual 8x8 images.
+   * 
+   * This function is called when the "LetterTextWindow" (the results table holding the coordinates
+   * of the letters) is closed by the user.
+   *      
+   * @param Array xUserClick Array of x-positions where the user has clicked
+   * @param Array yUserClick Array of y-positions where the user has clicked
+   * @param Array letters Array of letters that user has assigned manually to each spot where they have clicked           
+   *        
+   */
+  
+  public void saveLettersAsImages(Integer[] xUserClick, Integer[] yUserClick, String[] letters)
+  {
+    //holds number of occurrences of each letter
+	  Integer letterCount;
+    //holds the letter
+	  String letter;
+    //ImageProcessor object holding the individual letter image
+	  ImageProcessor letterIp;
+    //holds the coordinates of each rectangle, which we may want to manipulate before saving
+	  RectangleCoordinates rectangleCoordinates = new RectangleCoordinates();
+	  //keep track of how many of each letter we need to store as an image, for image naming purposes
+	  HashMap<String, Integer> letterCountMap = new HashMap<String, Integer>();
+	  
+	  //create file structure to hold images: the 8x8 letter images for each big image are stored in /tmp/[big image name]
+	  File dir = new File("tmp");
+	  if (!dir.exists())
+	  {
+		  dir.mkdir();
+	  }
+	  dir = new File("tmp/" + imageTitle);
+	  if (!dir.exists())
+	  {
+		  dir.mkdir();
+	  }
+	  
+	  //cycle through all the rectangles we identified from the image, see if the user has clicked on any of them
+	  for(int i = 0; i < x.length; i++)
+	  {
+		  //exclude rectangle if it is so big that it is obviously not a letter (e.g. a big rectangle around part of the image)
+		  if (((float) heights[i] >= 0.2f * (float) h) || ((float) widths[i] >= 0.2f * (float) w))
+		  {
+			  continue;
+		  }
+		  
+		  for(int j = 0; j < xUserClick.length; j++)
+		  {			  
+			  //check if the user click falls within the bounds of the rectangle
+			  if (
+					  (xUserClick[j] > x[i])
+					  && (xUserClick[j] < (x[i] + widths[i]))
+					  && (yUserClick[j] > y[i])
+					  && (yUserClick[j] < (y[i] + heights[i]))
+			  )
+			  {
+				  //user has clicked on this rectangle and identified the shape it contains as a particular letter
+          letter = letters[j];
+				  rectangleCoordinates.xTopLeft = (int) x[i];
+				  rectangleCoordinates.yTopLeft = (int) y[i];
+				  rectangleCoordinates.rW = (int) widths[i];
+				  rectangleCoordinates.rH = (int) heights[i];
+				  
+				  //we need a square shape for the resizing, so adjust the parameters of the rectangle slightly
+				  rectangleCoordinates.adjustToSquare();
+				  
+          //log our progress in a window
+				  IJ.log(letter + ": top left position=(" + rectangleCoordinates.xTopLeft + ", " + rectangleCoordinates.yTopLeft +
+				    	    "), height=" + rectangleCoordinates.rH + ", width=" + rectangleCoordinates.rW);
+				  letterIp = new ByteProcessor(rectangleCoordinates.rW, rectangleCoordinates.rH);
+
+				  //copy the rectangle from the original image to a new image
+				  for(u = 0; u < rectangleCoordinates.rW; u++)
+					{
+						for(v = 0; v < rectangleCoordinates.rH; v++)
+						{
+							p = ipOrig.get((rectangleCoordinates.xTopLeft + u), (rectangleCoordinates.yTopLeft + v));
+							letterIp.set(u, v, p);
+						}
+					}
+
+				  //resize the image to an 8x8 image using linear interpolation
+				  letterIp.setInterpolationMethod(ImageProcessor.BILINEAR);
+				  letterIp = letterIp.resize(8);
+				    
+				  //keep track of how many of each letter we have
+				  letterCount = letterCountMap.get(letter);
+				  if (letterCount != null)
+				  {
+				   	letterCount++;
+				  } else
+				  {
+				   	letterCount = 1;
+				  }
+				  letterCountMap.put(letter, letterCount);
+
+				  ImagePlus letterIm = new ImagePlus(letter, letterIp);
+				  //letterIm.show();
+				  
+          //save the 8x8 letter image in the /tmp/[big image name]/ folder  
+				  IJ.saveAs(letterIm, "png", "tmp/" + imageTitle + "/" + letter + letterCount + ".png");
+				  
+          IJ.log("image saved as tmp/" + imageTitle + "/" + letter + letterCount + ".png");
+            
+				  break;
+			  }
+		  }
+	  }
+
+  }
+
+  
 }
