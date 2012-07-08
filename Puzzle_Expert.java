@@ -13,7 +13,7 @@ import java.util.HashMap;
 
   /**
    * Plugin converts an image to black and white and draws a rectangle around each shape, then the user assigns letters to rectangles manually in a window
-   * and the results are saved as 8x8 images when the user closes the window.      
+   * and the results are saved as 12x12 images when the user closes the window.      
    */     
 
 public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, MouseListener, KeyListener, ImageListener {
@@ -23,7 +23,7 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
   
   protected float[] x, y, widths, heights;
   
-  protected ImageProcessor ipOrig, ipOrigMod, ipNew, ipNewMod;
+  protected ImageProcessor ipOrig, ipOrigWithRectangles, ipNew, ipNewWithRectangles, ipNewBw;
 
   ImagePlus imRes;
 
@@ -120,18 +120,23 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
                       
     //update the global image object
     imp = new ImagePlus("result", ipNew);
-    
+
     //calculate width and height of image
-	w = ipNew.getWidth();
-	h = ipNew.getHeight(); 
+	  w = ipNew.getWidth();
+	  h = ipNew.getHeight(); 
 
     //run the base class method to calculate the positions of the rectangles around each cluster
     getClusters();     
  
     //create duplicates for display
+    //the original image
     ipOrig = ip.duplicate().convertToRGB();
-    ipOrigMod = ipOrig.duplicate();
-    ipNewMod = ipNew.convertToRGB();
+    //a copy of the original image that we will draw rectangles on
+    ipOrigWithRectangles = ipOrig.duplicate();
+    //a black-and-white only (binary) copy of the image, which we will draw rectangles on 
+    ipNewWithRectangles = ipNew.convertToRGB();
+    //another black-and-white only (binary) copy, without rectangles, for creating the individual letter images
+    ipNewBw = ipNewWithRectangles.duplicate();
     
     //get x "start values" of rectangles (upper left-hand corner)
     x = rt.getColumn(11);
@@ -207,24 +212,24 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
           for(u = (int) x[i]; u < (int) (x[i] + widths[i]); u++)
           {
             //draw top border
-            ipNewMod.set(u, yTopBorder, rColor);
-            ipOrigMod.set(u, yTopBorder, rColor);
+            ipNewWithRectangles.set(u, yTopBorder, rColor);
+            ipOrigWithRectangles.set(u, yTopBorder, rColor);
             
             //draw bottom border            
-            ipNewMod.set(u, yBottomBorder, rColor);
-            ipOrigMod.set(u, yBottomBorder, rColor);  
+            ipNewWithRectangles.set(u, yBottomBorder, rColor);
+            ipOrigWithRectangles.set(u, yBottomBorder, rColor);  
           }
           
           //draw the left and right borders of the rectangle
           for(v = (int) y[i]; v < (int) (y[i] + heights[i]); v++)
           {
             //draw top border
-            ipNewMod.set(xLeftBorder, v, rColor);
-            ipOrigMod.set(xLeftBorder, v, rColor);
+            ipNewWithRectangles.set(xLeftBorder, v, rColor);
+            ipOrigWithRectangles.set(xLeftBorder, v, rColor);
             
             //draw bottom border
-            ipNewMod.set(xRightBorder, v, rColor);
-            ipOrigMod.set(xRightBorder, v, rColor);  
+            ipNewWithRectangles.set(xRightBorder, v, rColor);
+            ipOrigWithRectangles.set(xRightBorder, v, rColor);  
           }
         }
      }
@@ -242,10 +247,10 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
     ImageStack stack = imOrig.getStack();
     
     //add the image with the rectangles to the stack
-    stack.addSlice("with rectangles", ipOrigMod);
+    stack.addSlice("with rectangles", ipOrigWithRectangles);
     
     //add the black and white version with the rectangles to the stack
-    stack.addSlice("black & white", ipNewMod);
+    stack.addSlice("black & white", ipNewWithRectangles);
 
     //display the stack: the user presses keyboard left or right to toggle the images
     imRes = new ImagePlus("results", stack);
@@ -444,7 +449,7 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
   /**
    * Adjust the rectangle dimensions to a square.
    *    
-   * This helps because later we want to resize the image to 8x8.         
+   * This helps because later we want to resize the image to 12x12.         
    */ 
 
     public void adjustToSquare()
@@ -489,7 +494,7 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
   };
   
   /**
-   * Saves all of the letters in the image as individual 8x8 images.
+   * Saves all of the letters in the image as individual 12x12 images.
    * 
    * This function is called when the "LetterTextWindow" (the results table holding the coordinates
    * of the letters) is closed by the user.
@@ -500,20 +505,22 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
    *        
    */
   
-  public void saveLettersAsImages(Integer[] xUserClick, Integer[] yUserClick, String[] letters)
+  public void saveLettersAsImages(Integer[] xUserClick, Integer[] yUserClick, String[] letters, String text)
   {
     //holds number of occurrences of each letter
 	  Integer letterCount;
     //holds the letter
 	  String letter;
     //ImageProcessor object holding the individual letter image
-	  ImageProcessor letterIp;
+	  ImageProcessor letterIp, letterIpBw;
+    //ImagePlus object holding the individual letter image
+    ImagePlus letterIm, letterImBw;
     //holds the coordinates of each rectangle, which we may want to manipulate before saving
 	  RectangleCoordinates rectangleCoordinates = new RectangleCoordinates();
 	  //keep track of how many of each letter we need to store as an image, for image naming purposes
 	  HashMap<String, Integer> letterCountMap = new HashMap<String, Integer>();
 	  
-	  //create file structure to hold images: the 8x8 letter images for each big image are stored in /tmp/[big image name]
+	  //create file structure to hold images: the 12x12 letter images for each big image are stored in /tmp/[big image name]
 	  File dir = new File("tmp");
 	  if (!dir.exists())
 	  {
@@ -524,7 +531,13 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
 	  {
 		  dir.mkdir();
 	  }
-	  
+    //create extra directory for the black and white versions
+	  dir = new File("tmp/" + imageTitle + "/bw");
+	  if (!dir.exists())
+	  {
+		  dir.mkdir();
+	  }
+
 	  //cycle through all the rectangles we identified from the image, see if the user has clicked on any of them
 	  for(int i = 0; i < x.length; i++)
 	  {
@@ -557,8 +570,11 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
           //log our progress in a window
 				  IJ.log(letter + ": top left position=(" + rectangleCoordinates.xTopLeft + ", " + rectangleCoordinates.yTopLeft +
 				    	    "), height=" + rectangleCoordinates.rH + ", width=" + rectangleCoordinates.rW);
-				  letterIp = new ByteProcessor(rectangleCoordinates.rW, rectangleCoordinates.rH);
-
+				  //standard version
+          letterIp = new ByteProcessor(rectangleCoordinates.rW, rectangleCoordinates.rH);
+          //black and white version
+          letterIpBw = new ByteProcessor(rectangleCoordinates.rW, rectangleCoordinates.rH);
+          
 				  //copy the rectangle from the original image to a new image
 				  for(u = 0; u < rectangleCoordinates.rW; u++)
 					{
@@ -566,12 +582,17 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
 						{
 							p = ipOrig.get((rectangleCoordinates.xTopLeft + u), (rectangleCoordinates.yTopLeft + v));
 							letterIp.set(u, v, p);
+              p = ipNewBw.get((rectangleCoordinates.xTopLeft + u), (rectangleCoordinates.yTopLeft + v));
+							letterIpBw.set(u, v, p);
 						}
 					}
 
-				  //resize the image to an 8x8 image using linear interpolation
+				  //resize the image to an 12x12 image using linear interpolation
 				  letterIp.setInterpolationMethod(ImageProcessor.BILINEAR);
-				  letterIp = letterIp.resize(8);
+				  letterIp = letterIp.resize(12);
+          
+          letterIpBw.setInterpolationMethod(ImageProcessor.BILINEAR);
+				  letterIpBw = letterIpBw.resize(12);
 				    
 				  //keep track of how many of each letter we have
 				  letterCount = letterCountMap.get(letter);
@@ -584,11 +605,14 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
 				  }
 				  letterCountMap.put(letter, letterCount);
 
-				  ImagePlus letterIm = new ImagePlus(letter, letterIp);
-				  //letterIm.show();
+				  letterIm = new ImagePlus(letter, letterIp);
+          letterImBw = new ImagePlus(letter, letterIpBw);
+				  //letterImBw.show();
 				  
-          //save the 8x8 letter image in the /tmp/[big image name]/ folder  
+          //save the 12x12 letter image in the /tmp/[big image name]/ folder  
 				  IJ.saveAs(letterIm, "png", "tmp/" + imageTitle + "/" + letter + letterCount + ".png");
+          //save the black and white version in the /tmp/[big image name]/bw/ folder
+          IJ.saveAs(letterImBw, "png", "tmp/" + imageTitle + "/bw/" + letter + letterCount + ".png");
 				  
           IJ.log("image saved as tmp/" + imageTitle + "/" + letter + letterCount + ".png");
             
@@ -596,6 +620,23 @@ public class Puzzle_Expert extends ParticleAnalyzer implements PlugInFilter, Mou
 			  }
 		  }
 	  }
+
+    //finally, save the table mapping the image coordinates to letters
+    try{
+      // Create file 
+      FileWriter fstream = new FileWriter("tmp/" + imageTitle + "/results.txt");
+      BufferedWriter out = new BufferedWriter(fstream);
+      out.write(text);
+      //Close the output stream
+      out.close();
+    }catch (Exception e){//Catch exception if any
+      System.err.println("Error: " + e.getMessage());
+    }
+
+
+    //out.write("xxx");
+
+
 
   }
 
